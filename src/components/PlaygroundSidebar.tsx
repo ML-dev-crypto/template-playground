@@ -3,6 +3,7 @@ import { IoCodeSlash } from "react-icons/io5";
 import { VscOutput } from "react-icons/vsc";
 import { FiTerminal, FiShare2, FiSettings } from "react-icons/fi";
 import { FaCirclePlay } from "react-icons/fa6";
+import { FaFlask } from "react-icons/fa";
 import { IoChatbubbleEllipsesOutline } from "react-icons/io5";
 import useAppStore from "../store/store";
 import { message, Tooltip } from "antd";
@@ -23,6 +24,7 @@ const PlaygroundSidebar = () => {
     setAIChatOpen,
     generateShareableLink,
     setSettingsOpen,
+    testExecution,
   } = useAppStore((state) => ({
     isEditorsVisible: state.isEditorsVisible,
     isPreviewVisible: state.isPreviewVisible,
@@ -34,6 +36,7 @@ const PlaygroundSidebar = () => {
     setAIChatOpen: state.setAIChatOpen,
     generateShareableLink: state.generateShareableLink,
     setSettingsOpen: state.setSettingsOpen,
+    testExecution: state.testExecution,
   }));
 
   const handleShare = async () => {
@@ -136,6 +139,11 @@ const PlaygroundSidebar = () => {
   }
 
   const navBottom: NavBottomItem[] = [
+    {
+      title: "Test Logic",
+      icon: FaFlask,
+      onClick: () => void testExecution()
+    },
     { 
       title: "Share", 
       icon: FiShare2,

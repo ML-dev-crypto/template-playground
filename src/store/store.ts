@@ -3,7 +3,7 @@ import { devtools } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
 import { debounce } from "ts-debounce";
 import { ModelManager } from "@accordproject/concerto-core";
-import { TemplateMarkInterpreter } from "@accordproject/template-engine";
+import { TemplateMarkInterpreter, TemplateArchiveProcessor } from "@accordproject/template-engine";
 import { TemplateMarkTransformer } from "@accordproject/markdown-template";
 import { transform } from "@accordproject/markdown-transform";
 import { SAMPLES, Sample } from "../samples";
@@ -68,6 +68,7 @@ interface AppState {
   setSettingsOpen: (value: boolean) => void;
   keyProtectionLevel: KeyProtectionLevel | null;
   setKeyProtectionLevel: (level: KeyProtectionLevel | null) => void;
+  testExecution: () => Promise<void>;
 }
 
 export interface DecompressedData {
@@ -391,6 +392,114 @@ const useAppStore = create<AppState>()(
         setAIConfig: (config) => set({ aiConfig: config }),
         setChatAbortController: (controller) => set({ chatAbortController: controller }),
         setKeyProtectionLevel: (level) => set({ keyProtectionLevel: level }),
+        testExecution: async () => {
+          try {
+            console.log('🚀 Starting logic execution POC...');
+
+            const MODEL = `namespace io.clause.latedeliveryandpenalty@0.1.0
+import org.accordproject.contract@0.2.0.Clause from https://models.accordproject.org/accordproject/contract@0.2.0.cto
+import org.accordproject.runtime@0.2.0.{Request,Response} from https://models.accordproject.org/accordproject/runtime@0.2.0.cto
+@template
+asset TemplateModel extends Clause {
+  o Boolean forceMajeure
+  o Double penaltyPercentage
+  o Double capPercentage
+}
+transaction LateDeliveryAndPenaltyRequest extends Request {
+  o Boolean forceMajeure
+  o DateTime agreedDelivery
+  o Double goodsValue
+}
+transaction LateDeliveryAndPenaltyResponse extends Response {
+  o Double penalty
+  o Boolean buyerMayTerminate
+}
+concept LateDeliveryAndPenaltyState identified {
+  o Integer count
+}`;
+
+            const LOGIC = `
+class LateDeliveryLogic extends TemplateLogic {
+  async init(data) {
+    return {
+      state: {
+        $class: 'io.clause.latedeliveryandpenalty@0.1.0.LateDeliveryAndPenaltyState',
+        $identifier: data.$identifier,
+        count: 0,
+      }
+    };
+  }
+  async trigger(data, request, state) {
+    return {
+      result: {
+        penalty: data.penaltyPercentage * request.goodsValue * 0.1,
+        buyerMayTerminate: true,
+        $class: 'io.clause.latedeliveryandpenalty@0.1.0.LateDeliveryAndPenaltyResponse'
+      },
+      events: [{ penaltyCalculated: true }],
+      state: { ...state, count: state.count + 1 }
+    };
+  }
+}
+export default LateDeliveryLogic;
+`;
+
+            const DATA = {
+              $class: 'io.clause.latedeliveryandpenalty@0.1.0.TemplateModel',
+              $identifier: 'test-001',
+              forceMajeure: false,
+              penaltyPercentage: 10.5,
+              capPercentage: 50,
+            };
+
+            const REQUEST = {
+              $class: 'io.clause.latedeliveryandpenalty@0.1.0.LateDeliveryAndPenaltyRequest',
+              forceMajeure: false,
+              agreedDelivery: '2017-12-17T03:24:00Z',
+              goodsValue: 200.00,
+            };
+
+            const { ModelManager } = await import('@accordproject/concerto-core');
+            const modelManager = new ModelManager({ strict: true });
+            await modelManager.addCTOModel(MODEL, 'model.cto', true);
+            await modelManager.updateExternalModels();
+
+            // Mock Template — only 5 methods used internally
+            const mockTemplate = {
+              getMetadata: () => ({ getTemplateType: () => 1 }),
+              getModelManager: () => modelManager,
+              getTemplate: () => ({ content: '' }),
+              getTemplateModel: () => ({
+                getFullyQualifiedName: () => 'io.clause.latedeliveryandpenalty@0.1.0.TemplateModel'
+              }),
+              getLogicManager: () => ({
+                getLanguage: () => 'typescript',
+                getScriptManager: () => ({
+                  getScriptsForTarget: (_target: string) => [{
+                    getIdentifier: () => 'logic/logic.ts',
+                    getContents: () => LOGIC,
+                  }],
+                }),
+              }),
+            };
+
+            const processor = new TemplateArchiveProcessor(mockTemplate as any);
+
+            console.log('⚙️ Calling init() — this triggers CDN fetch for TS compiler...');
+            const initResponse = await processor.init(DATA);
+            console.log('✅ Init response:', JSON.stringify(initResponse, null, 2));
+
+            console.log('⚙️ Calling trigger()...');
+            const triggerResponse = await processor.trigger(DATA, REQUEST, initResponse.state);
+            console.log('✅ Trigger result:', JSON.stringify(triggerResponse.result, null, 2));
+            console.log('✅ Trigger state:', JSON.stringify(triggerResponse.state, null, 2));
+            console.log('✅ Trigger events:', JSON.stringify(triggerResponse.events, null, 2));
+            console.log('🎉 POC SUCCESS');
+
+          } catch(err) {
+            console.error('❌ POC failed:', err);
+          }
+        },
         resetChat: () => {
           const { chatAbortController } = get();
           if (chatAbortController) {
